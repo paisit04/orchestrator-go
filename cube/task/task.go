@@ -16,26 +16,18 @@ import (
 	"github.com/google/uuid"
 )
 
-type State int
-
-const (
-	Pending State = iota
-	Scheduled
-	Running
-	Completed
-	Failed
-)
-
 type Task struct {
 	ID            uuid.UUID
+	ContainerID   string
 	Name          string
 	State         State
 	Image         string
-	Memory        int
-	Disk          int
+	Cpu           float64
+	Memory        int64
+	Disk          int64
 	ExposedPorts  nat.PortSet
 	PortBindings  map[string]string
-	RestartPolicy string
+	RestartPolicy container.RestartPolicyMode
 	StartTime     time.Time
 	FinishTime    time.Time
 }
@@ -63,15 +55,35 @@ type Config struct {
 	RestartPolicy container.RestartPolicyMode
 }
 
+func NewConfig(t *Task) *Config {
+	return &Config{
+		Name:          t.Name,
+		ExposedPorts:  t.ExposedPorts,
+		Image:         t.Image,
+		Cpu:           t.Cpu,
+		Memory:        t.Memory,
+		Disk:          t.Disk,
+		RestartPolicy: t.RestartPolicy,
+	}
+}
+
 type Docker struct {
 	Client *client.Client
 	Config Config
 }
 
+func NewDocker(c *Config) *Docker {
+	dc, _ := client.NewClientWithOpts(client.FromEnv)
+	return &Docker{
+		Client: dc,
+		Config: *c,
+	}
+}
+
 type DockerResult struct {
 	Error       error
 	Action      string
-	ContainerId string
+	ContainerID string
 	Result      string
 }
 
@@ -129,7 +141,7 @@ func (d *Docker) Run() DockerResult {
 	}
 
 	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
-	return DockerResult{ContainerId: resp.ID, Action: "start", Result: "success"}
+	return DockerResult{ContainerID: resp.ID, Action: "start", Result: "success"}
 }
 
 func (d *Docker) Stop(id string) DockerResult {
