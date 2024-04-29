@@ -47,39 +47,48 @@ func (a *Api) GetTasksHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(a.Worker.GetTasks())
 }
 
-func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
+func (a *Api) InspectTaskHandler(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
 	if taskID == "" {
-		msg := "No taskID passed in request.\n"
-		log.Print(msg)
-		w.WriteHeader(http.StatusBadRequest)
-		e := ErrResponse{
-			HTTPStatusCode: http.StatusBadRequest,
-			Message:        msg,
-		}
-		json.NewEncoder(w).Encode(e)
-		return
+		log.Printf("No taskID passed in request.\n")
+		w.WriteHeader(400)
 	}
 
 	tID, _ := uuid.Parse(taskID)
-	_, ok := a.Worker.Db[tID]
-	if !ok {
-		msg := fmt.Sprintf("No Task with ID %v found.\n", tID)
-		log.Print(msg)
-		w.WriteHeader(http.StatusNotFound)
-		e := ErrResponse{
-			HTTPStatusCode: http.StatusNotFound,
-			Message:        msg,
-		}
-		json.NewEncoder(w).Encode(e)
+	t, err := a.Worker.Db.Get(tID.String())
+	if err != nil {
+		log.Printf("No task with ID %v found", tID)
+		w.WriteHeader(404)
 		return
 	}
 
-	taskToStop := a.Worker.Db[tID]
-	taskCopy := *taskToStop
+	resp := a.Worker.InspectTask(t.(task.Task))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	json.NewEncoder(w).Encode(resp.Container)
+
+}
+
+func (a *Api) StopTaskHandler(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskID")
+	if taskID == "" {
+		log.Printf("No taskID passed in request.\n")
+		w.WriteHeader(400)
+	}
+
+	tID, _ := uuid.Parse(taskID)
+	taskToStop, err := a.Worker.Db.Get(tID.String())
+	if err != nil {
+		log.Printf("No task with ID %v found", tID)
+		w.WriteHeader(404)
+	}
+
+	// we need to make a copy so we are not modifying the task in the datastore
+	taskCopy := *taskToStop.(*task.Task)
 	taskCopy.State = task.Completed
 	a.Worker.AddTask(taskCopy)
 
-	log.Printf("Added task %v to stop container %v\n", taskToStop.ID, taskToStop.ContainerID)
-	w.WriteHeader(http.StatusNoContent)
+	log.Printf("Added task %v to stop container %v\n", taskCopy.ID.String(), taskCopy.ContainerID)
+	w.WriteHeader(204)
 }
